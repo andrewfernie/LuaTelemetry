@@ -1,4 +1,4 @@
-local config, data, units, getTelemetryId, getTelemetryUnit, FILE_PATH = ...
+local config, data, units, getTelemetryId, getTelemetryUnit, FILE_PATH, env = ...
 local crsf = nil
 
 -- Detect Crossfire
@@ -8,7 +8,7 @@ data.fm_id = getTelemetryId("FM") > -1 and getTelemetryId("FM") or getTelemetryI
 --if data.simu then data.fm_id = 1 end
 
 if data.fm_id > -1 then
-	crsf = loadfile(FILE_PATH .. "crsf.luac")(config, data, getTelemetryId)
+	crsf = loadScript(FILE_PATH .. "crsf.luac", env)(config, data, getTelemetryId)
 	collectgarbage()
 end
 
@@ -36,16 +36,14 @@ else
 	data.accz = 1
 end
 
--- Saved config adjustments
-config[15].v = 0
+-- Config adjustments and special cases
+-- Config options: v=default Value / x=maX
+-- 6=Max Altitude / 15=GPS (last fix) / 20=Speed Sensor / 25=View Mode / 28=Altitude Graph
+if config[6].v == -1 then
+	config[6].v = data.alt_unit == 10 and 400 or 120
+end
 config[19].x = config[14].v == 0 and 2 or SMLCD and 1 or 2
 config[19].v = math.min(config[19].x, config[19].v)
-
--- Config special cases
-config[6].v = data.alt_unit == 10 and 400 or 120
-config[6].i = data.alt_unit == 10 and 10 or 1
-config[6].a = units[data.alt_unit]
-config[24].a = units[data.alt_unit]
 config[20].v = data.pitot and config[20].v or 0
 if config[28].v == 0 then
 	config[25].x = 2
@@ -60,4 +58,32 @@ if data.dist_id == -1 then
 	data.dist_unit = data.alt_unit
 end
 
-return crsf
+-- Use timer3 for flight reset detection
+model.setTimer(2, { mode = 0, start = 0, value = 3600, countdownBeep = 0, minuteBeep = false, persistent = 0} )
+
+-- Calculate distance to home if sensor is missing or in simlulator
+local distCalc = nil
+if data.dist_id == -1 or data.simu then
+	function distCalc(data)
+		local rad = math.rad
+		local o1 = rad(data.gpsHome.lat)
+		local o2 = rad(data.gpsLatLon.lat)
+		--[[ Spherical-Earth math: More accurate if the Earth was a sphere, but it's not so who cares?
+		data.distance = math.acos(math.sin(o1) * math.sin(o2) + math.cos(o1) * math.cos(o2) * math.cos(rad(data.gpsLatLon.lon) - rad(data.gpsHome.lon))) * 6371009
+		]]
+		-- Flat-Earth math
+		local x = (rad(data.gpsLatLon.lon) - rad(data.gpsHome.lon)) * math.cos((o1 + o2) / 2)
+		local y = o2 - o1
+		data.distance = math.sqrt(x * x + y * y) * 6371009
+		data.distanceMax = math.max(data.distMaxCalc, data.distance)
+		data.distMaxCalc = data.distanceMax
+		-- If distance is in feet, convert
+		if data.dist_unit == 10 then
+			data.distance = math.floor(data.distance * 3.28084 + 0.5)
+			data.distanceMax = data.distanceMax * 3.28084
+		end
+		return 0
+	end
+end
+
+return crsf, distCalc

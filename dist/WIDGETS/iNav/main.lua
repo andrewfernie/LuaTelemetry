@@ -1,5 +1,5 @@
 local buildMode = ...
-local iNav
+local iNav = nil
 local options = {
 	{ "Restore", BOOL, 0},
 	{ "Text", COLOR, BLACK},
@@ -17,12 +17,14 @@ end
 local function create(zone, options)
 	iNavZone = { zone = zone, options = options }
 	iNav = loadfile(TELE_PATH .. "iNav.luac")(false)
+	iNav.background()
 	return iNavZone
 end
 
 -- This function allow updates when you change widgets settings
 local function update(iNavZone, options)
 	iNavZone.options = options
+	return
 end
 
 -- Called periodically when custom telemetry screen containing widget is visible.
